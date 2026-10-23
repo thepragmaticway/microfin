@@ -1,0 +1,29 @@
+# Local workflow state
+.dev-loop/
+
+# Environment values and credentials
+.env*
+!.env.example
+*.pem
+*.key
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Tests and local tooling
+coverage/
+playwright-report/
+test-results/
+.vercel/
+supabase/.temp/
+supabase/.branches/
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
