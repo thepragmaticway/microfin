@@ -1,0 +1,52 @@
+{
+  "name": "microfin",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . && node scripts/check-boundaries.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run tests/unit",
+    "test:db": "node scripts/test-db.mjs",
+    "test:api": "node scripts/test-api.mjs",
+    "test:e2e": "node scripts/test-e2e.mjs",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:types": "node scripts/database-types.mjs"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "@heroui/react": "3.2.6",
+    "@heroui/styles": "3.2.6",
+    "react-aria": "3.52.1",
+    "react-aria-components": "1.21.1",
+    "@react-aria/ssr": "3.10.1",
+    "@react-aria/utils": "3.34.1",
+    "@internationalized/date": "3.12.4",
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.118.0",
+    "decimal.js": "10.6.0",
+    "zod": "4.3.6",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "@types/node": "22.19.15",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.4.3",
+    "vitest": "5.0.5",
+    "@playwright/test": "1.64.1",
+    "pg": "8.20.0",
+    "dotenv": "17.3.1"
+  }
+}
