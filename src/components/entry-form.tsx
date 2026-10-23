@@ -1,7 +1,13 @@
 "use client";
 import { useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { buildGuided, type GuidedInput, type Split } from "@/lib/guided";
+import {
+  buildGuided,
+  previewTransfer,
+  type GuidedInput,
+  type Split,
+  type TransferValues,
+} from "@/lib/guided";
 import { d, displayMoney } from "@/lib/money";
 import { workspaceToday } from "@/lib/reports";
 import type { Account, EventInput, Kind, Snapshot } from "@/lib/types";
@@ -72,19 +78,29 @@ export function EntryForm({
   done: () => void;
 }) {
   const [kind, setKind] = useState(initialKind),
+    [sourceId, setSourceId] = useState(""),
+    [destinationId, setDestinationId] = useState(""),
     [splits, setSplits] = useState<Split[]>([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [preview, setPreview] = useState<EventInput | null>(null);
+    [preview, setPreview] = useState<EventInput | null>(null),
+    [transferValues, setTransferValues] = useState<TransferValues | null>(null);
   const form = useRef<HTMLFormElement>(null),
     id = useRef(crypto.randomUUID()),
     pending = useRef<EventInput | null>(null);
   const options = choices(s, kind),
-    functional = s.workspace.functional_currency_code;
-  function build() {
+    functional = s.workspace.functional_currency_code,
+    source = s.accounts.find((a) => a.id === sourceId),
+    destination = s.accounts.find((a) => a.id === destinationId),
+    sourceCurrency = source?.currency_code,
+    destinationCurrency = destination?.currency_code,
+    transfer = kind === "transfer",
+    difference = transferValues ? d(transferValues.difference) : null,
+    needsFx = difference !== null && !difference.isZero();
+  function input(): GuidedInput {
     const f = new FormData(form.current!);
     const optional = (key: string) => f.get(key)?.toString() || undefined;
-    return buildGuided(s, {
+    return {
       id: id.current,
       kind,
       accounting_date: String(f.get("date")),
@@ -93,20 +109,28 @@ export function EntryForm({
       source_id: String(f.get("source")),
       destination_id: String(f.get("destination")),
       amount: String(f.get("amount")),
-      currency: String(f.get("currency")),
-      rate: String(f.get("rate")),
-      destination_amount: optional("destination_amount"),
+      currency: transfer
+        ? (sourceCurrency ?? functional)
+        : String(f.get("currency")),
+      rate: String(f.get("rate") ?? "1"),
+      destination_amount: transfer
+        ? String(f.get("destination_amount") ?? "")
+        : optional("destination_amount"),
       destination_rate: optional("destination_rate"),
       fx_account_id: optional("fx"),
       reference: optional("reference"),
       due_date: optional("due"),
       splits: splits.filter((x) => x.account_id && x.amount),
-    } as GuidedInput);
+    } as GuidedInput;
   }
   const updatePreview = () => {
     pending.current = null;
+    setError("");
+    setTransferValues(null);
     try {
-      setPreview(build());
+      const p = input();
+      if (transfer) setTransferValues(previewTransfer(s, p));
+      setPreview(buildGuided(s, p));
     } catch {
       setPreview(null);
     }
@@ -116,7 +140,7 @@ export function EntryForm({
     setError("");
     setBusy(true);
     try {
-      const event = pending.current ?? build();
+      const event = pending.current ?? buildGuided(s, input());
       pending.current = event;
       await api(`/api/workspaces/${s.workspace.id}/events`, { event, post });
       done();
@@ -129,7 +153,12 @@ export function EntryForm({
   return (
     <form
       ref={form}
-      onChange={updatePreview}
+      onChange={(e) => {
+        if (!(
+          e.target instanceof HTMLSelectElement && e.target.name === "kind"
+        ))
+          updatePreview();
+      }}
       onSubmit={(e) => {
         e.preventDefault();
         void save(true);
@@ -138,10 +167,15 @@ export function EntryForm({
       <div className="form-grid">
         <Field label="What happened?">
           <select
+            name="kind"
             value={kind}
             onChange={(e) => {
               setKind(e.target.value as Kind);
               setSplits([]);
+              setSourceId("");
+              setDestinationId("");
+              setTransferValues(null);
+              setError("");
               pending.current = null;
               setPreview(null);
             }}
@@ -183,7 +217,12 @@ export function EntryForm({
                   : "Money account"
           }
         >
-          <select name="source" required key={`source-${kind}`}>
+          <select
+            name="source"
+            required
+            key={`source-${kind}`}
+            onChange={(e) => setSourceId(e.target.value)}
+          >
             <option value="">Choose account</option>
             <AccountOptions accounts={options.source} />
           </select>
@@ -201,12 +240,22 @@ export function EntryForm({
             name="destination"
             required={splits.length === 0}
             key={`destination-${kind}`}
+            onChange={(e) => setDestinationId(e.target.value)}
           >
             <option value="">Choose account</option>
             <AccountOptions accounts={options.target} />
           </select>
         </Field>
-        <Field label="Amount">
+        <Field
+          label={
+            transfer
+              ? `Amount leaving${sourceCurrency ? ` (${sourceCurrency})` : ""}`
+              : "Amount"
+          }
+          hint={
+            transfer ? "Amount in the source account’s currency" : undefined
+          }
+        >
           <input
             name="amount"
             inputMode="decimal"
@@ -215,22 +264,41 @@ export function EntryForm({
             required
           />
         </Field>
-        <Field
-          label="Entry currency"
-          hint="Money accounts use their fixed currency"
-        >
-          <select name="currency" defaultValue={functional}>
-            {["THB", "SGD", "MMK", "USD"].map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </Field>
-        <Field
-          label="Exchange rate"
-          hint={`1 entry-currency unit = how many ${functional}?`}
-        >
-          <input name="rate" inputMode="decimal" defaultValue="1" required />
-        </Field>
+        {!transfer && (
+          <Field
+            label="Entry currency"
+            hint="Money accounts use their fixed currency"
+          >
+            <select name="currency" defaultValue={functional}>
+              {["THB", "SGD", "MMK", "USD"].map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {!transfer && (
+          <Field
+            label="Exchange rate"
+            hint={`1 entry-currency unit = how many ${functional}?`}
+          >
+            <input name="rate" inputMode="decimal" defaultValue="1" required />
+          </Field>
+        )}
+        {transfer &&
+          source?.type === "liability" &&
+          sourceCurrency !== functional && (
+            <Field
+              label={`Source exchange rate (${sourceCurrency} → ${functional})`}
+              hint={`1 ${sourceCurrency} = how many ${functional}?`}
+            >
+              <input
+                name="rate"
+                inputMode="decimal"
+                defaultValue="1"
+                required
+              />
+            </Field>
+          )}
         <Field label="Customer / supplier (optional)">
           <select name="party" required={["invoice", "bill"].includes(kind)}>
             <option value="">No contact</option>
@@ -244,22 +312,30 @@ export function EntryForm({
         {kind === "transfer" && (
           <>
             <Field
-              label="Amount arriving"
-              hint="Amount in the destination account’s currency"
+              label={`Amount arriving${destinationCurrency ? ` (${destinationCurrency})` : ""}`}
+              hint={
+                destinationCurrency === functional
+                  ? `Amount in ${functional}, the home currency; no conversion is needed`
+                  : "Amount in the destination account’s currency"
+              }
             >
               <input name="destination_amount" inputMode="decimal" required />
             </Field>
-            <Field
-              label="Destination exchange rate"
-              hint={`1 destination-currency unit = ${functional}`}
-            >
-              <input
-                name="destination_rate"
-                inputMode="decimal"
-                defaultValue="1"
-                required
-              />
-            </Field>
+            {destinationCurrency &&
+              destinationCurrency !== functional &&
+              destination?.type !== "liability" && (
+                <Field
+                  label={`Destination exchange rate (${destinationCurrency} → ${functional})`}
+                  hint={`1 ${destinationCurrency} = how many ${functional}?`}
+                >
+                  <input
+                    name="destination_rate"
+                    inputMode="decimal"
+                    defaultValue="1"
+                    required
+                  />
+                </Field>
+              )}
           </>
         )}
         {["invoice", "bill", "opening_balance"].includes(kind) && (
@@ -349,23 +425,68 @@ export function EntryForm({
           ))}
         </div>
       )}
-      <Field
-        label="FX / rounding category (if values differ)"
-        hint="The difference appears as a separate income or expense entry"
-      >
-        <select name="fx">
-          <option value="">Choose only when needed</option>
-          <AccountOptions
-            accounts={s.accounts.filter(
-              (a) =>
-                a.is_active &&
-                a.role === "general" &&
-                ["revenue", "expense"].includes(a.type),
-            )}
-          />
-        </select>
-      </Field>
-      {preview && (
+      {transfer && transferValues && (
+        <section
+          className="preview"
+          aria-label="Transfer home-currency values"
+          aria-live="polite"
+        >
+          <small>TRANSFER IN {functional}</small>
+          <div className="report-line">
+            <span>Home value leaving</span>
+            <strong>{displayMoney(transferValues.outgoing, functional)}</strong>
+          </div>
+          <div className="report-line">
+            <span>Home value arriving</span>
+            <strong>{displayMoney(transferValues.incoming, functional)}</strong>
+          </div>
+          <div className="report-line">
+            <span>
+              {needsFx
+                ? `FX / rounding ${difference!.isPositive() ? "gain" : "loss"}`
+                : "No FX / rounding difference"}
+            </span>
+            <strong>
+              {displayMoney(difference!.abs().toString(), functional)}
+            </strong>
+          </div>
+          <small>
+            {sourceCurrency !== functional
+              ? source?.type === "asset"
+                ? `The outgoing ${sourceCurrency} uses its historical ${functional} book value, not today’s exchange rate.`
+                : `The outgoing ${sourceCurrency} is converted using the source exchange rate.`
+              : `The outgoing ${functional} is already in the home currency.`}
+            {destination?.type === "liability" &&
+              destinationCurrency !== functional &&
+              ` The arriving ${destinationCurrency} reduces its historical ${functional} liability value.`}
+            {needsFx &&
+              " The home-currency values differ; choose a category below to record this gain or loss."}
+          </small>
+        </section>
+      )}
+      {(!transfer || needsFx) && (
+        <Field
+          label={
+            transfer
+              ? "FX / rounding category"
+              : "FX / rounding category (if values differ)"
+          }
+          hint="The difference appears as a separate income or expense entry"
+        >
+          <select name="fx">
+            <option value="">Choose only when needed</option>
+            <AccountOptions
+              accounts={s.accounts.filter(
+                (a) =>
+                  a.is_active &&
+                  a.role === "general" &&
+                  ["revenue", "expense"].includes(a.type),
+              )}
+            />
+          </select>
+        </Field>
+      )}
+      {!transfer && preview && (
         <div className="preview">
           <small>HOME-CURRENCY PREVIEW</small>
           <div className="report-line">

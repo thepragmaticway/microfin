@@ -1,4 +1,11 @@
-import { carrying, convert, d, effectiveRate, money } from "./money";
+import {
+  carrying,
+  convert,
+  d,
+  displayMoney,
+  effectiveRate,
+  money,
+} from "./money";
 import { openItems } from "./reports";
 import type {
   Account,
@@ -124,11 +131,14 @@ function discharge(
     book: money(d(balance.book).minus(l.book_amount)),
   });
 }
-function balanceFx(s: Snapshot, lines: Line[], fxId?: string) {
-  const difference = lines.reduce(
+function bookDifference(lines: Line[]) {
+  return lines.reduce(
     (sum, l) => sum.plus(d(l.book_amount).times(l.side === "debit" ? 1 : -1)),
     d(0),
   );
+}
+function balanceFx(s: Snapshot, lines: Line[], fxId?: string) {
+  const difference = bookDifference(lines);
   if (difference.isZero()) return;
   const fx = s.accounts.find(
     (a) =>
@@ -139,7 +149,7 @@ function balanceFx(s: Snapshot, lines: Line[], fxId?: string) {
   );
   if (!fx)
     throw new Error(
-      "Choose an FX / rounding category to record the difference",
+      `Choose an FX / rounding category to record the difference: ${displayMoney(difference.abs().toString(), s.workspace.functional_currency_code)} ${difference.isPositive() ? "gain" : "loss"} because the home-currency values differ`,
     );
   lines.push(
     line(
@@ -152,7 +162,7 @@ function balanceFx(s: Snapshot, lines: Line[], fxId?: string) {
     ),
   );
 }
-export function buildGuided(s: Snapshot, p: GuidedInput): EventInput {
+function guidedEvent(s: Snapshot, p: GuidedInput): EventInput {
   const functional = s.workspace.functional_currency_code;
   const account = (id: string) => {
     const a = s.accounts.find((a) => a.id === id && a.is_active);
@@ -203,7 +213,6 @@ export function buildGuided(s: Snapshot, p: GuidedInput): EventInput {
   const control = lines.find((l) =>
     ["receivable", "payable"].includes(account(l.account_id).role),
   );
-  balanceFx(s, lines, p.fx_account_id);
   return {
     id: p.id,
     accounting_date: p.accounting_date,
@@ -220,6 +229,28 @@ export function buildGuided(s: Snapshot, p: GuidedInput): EventInput {
         }
       : null,
     settlements: [],
+  };
+}
+export function buildGuided(s: Snapshot, p: GuidedInput): EventInput {
+  const event = guidedEvent(s, p);
+  balanceFx(s, event.lines, p.fx_account_id);
+  return event;
+}
+export interface TransferValues {
+  outgoing: string;
+  incoming: string;
+  difference: string;
+}
+export function previewTransfer(s: Snapshot, p: GuidedInput): TransferValues {
+  if (p.kind !== "transfer" || p.splits.length)
+    throw new Error("Choose a transfer without category splits");
+  // Use the posting calculation, but expose values rather than an unbalanced
+  // event. Saving must still pass buildGuided's FX category validation.
+  const { lines } = guidedEvent(s, p);
+  return {
+    outgoing: lines.find((l) => l.side === "credit")!.book_amount,
+    incoming: lines.find((l) => l.side === "debit")!.book_amount,
+    difference: money(bookDifference(lines)),
   };
 }
 export interface PaymentAllocation {

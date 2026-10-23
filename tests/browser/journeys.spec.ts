@@ -1,6 +1,237 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import type { Snapshot } from "../../src/lib/types";
+
+test("transfers explain native amounts and home-value gain, loss and zero difference before saving", async ({
+  page,
+  baseURL,
+}) => {
+  const origin = new URL(baseURL!).origin;
+  async function post(path: string, data: unknown) {
+    const response = await page.request.post(path, {
+      headers: { origin },
+      data,
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+    return (await response.json()).data;
+  }
+  const email = `transfer-${randomUUID()}@example.test`,
+    password = "A-transfer-test-password-123!";
+  await post("/api/auth", {
+    action: "register",
+    email,
+    password,
+    display_name: "Transfer owner",
+  });
+  await post("/api/auth", { action: "login", email, password });
+  const workspace = randomUUID();
+  await post("/api/workspaces", {
+    id: workspace,
+    name: "Transfer values",
+    kind: "business",
+    functional_currency_code: "THB",
+    timezone: "Asia/Bangkok",
+  });
+  const source = randomUUID(),
+    destination = randomUUID(),
+    capital = randomUUID(),
+    fx = randomUUID();
+  for (const account of [
+    {
+      id: source,
+      name: "DBS",
+      type: "asset",
+      role: "bank",
+      currency_code: "SGD",
+    },
+    {
+      id: destination,
+      name: "BKB",
+      type: "asset",
+      role: "bank",
+      currency_code: "THB",
+    },
+    {
+      id: capital,
+      name: "Owner capital",
+      type: "equity",
+      role: "general",
+      currency_code: null,
+    },
+    {
+      id: fx,
+      name: "FX differences",
+      type: "expense",
+      role: "general",
+      currency_code: null,
+    },
+  ])
+    await post(`/api/workspaces/${workspace}/accounts`, {
+      ...account,
+      is_active: true,
+    });
+  await post(`/api/workspaces/${workspace}/events`, {
+    post: true,
+    event: {
+      id: randomUUID(),
+      kind: "contribution",
+      accounting_date: "2026-10-24",
+      description: "Existing SGD at historical rate",
+      party_id: null,
+      obligation: null,
+      settlements: [],
+      lines: [
+        { account_id: source, side: "debit" },
+        { account_id: capital, side: "credit" },
+      ].map((line) => ({
+        ...line,
+        id: randomUUID(),
+        amount: "60000",
+        currency_code: "SGD",
+        exchange_rate: "24",
+        book_amount: "1440000",
+        rate_source: "manual",
+      })),
+    },
+  });
+  async function snapshot(): Promise<Snapshot> {
+    return (
+      await (await page.request.get(`/api/workspaces/${workspace}`)).json()
+    ).data;
+  }
+  await page.goto("/");
+  for (const [arriving, outcome, save] of [
+    ["500000", "gain", "Record entry →"],
+    ["460000", "loss", "Save draft"],
+    ["480000", "balanced", "Record entry →"],
+  ]) {
+    await page.getByRole("button", { name: "+ Add entry" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("What happened?").selectOption("transfer");
+    await dialog
+      .getByLabel("A short description")
+      .fill(`SGD transfer ${outcome}`);
+    await dialog
+      .getByLabel("Money account", { exact: true })
+      .selectOption(source);
+    await dialog
+      .getByLabel("Move to", { exact: true })
+      .selectOption(destination);
+    await expect(
+      dialog.getByLabel("Entry currency", { exact: true }),
+    ).toHaveCount(0);
+    await expect(dialog.getByLabel(/exchange rate/i)).toHaveCount(0);
+    await dialog
+      .getByLabel("Amount leaving (SGD)", { exact: true })
+      .fill("20000");
+    await dialog
+      .getByLabel("Amount arriving (THB)", { exact: true })
+      .fill(arriving);
+    const values = dialog.getByRole("region", {
+      name: "Transfer home-currency values",
+    });
+    await expect(values).toContainText("Home value leavingTHB 480,000.00");
+    await expect(values).toContainText(
+      `Home value arrivingTHB ${Number(arriving).toLocaleString("en-US")}.00`,
+    );
+    await expect(values).toContainText("historical THB book value");
+    const category = dialog.getByLabel("FX / rounding category", {
+      exact: true,
+    });
+    if (outcome === "balanced") {
+      await expect(values).toContainText("No FX / rounding differenceTHB 0.00");
+      await expect(category).toHaveCount(0);
+    } else {
+      await expect(values).toContainText(
+        `FX / rounding ${outcome}THB 20,000.00`,
+      );
+      const before = (await snapshot()).transactions.length;
+      await dialog.getByRole("button", { name: save, exact: true }).click();
+      await expect(dialog.getByRole("alert")).toContainText(
+        `THB 20,000.00 ${outcome} because the home-currency values differ`,
+      );
+      expect((await snapshot()).transactions).toHaveLength(before);
+      await expect(values).toBeVisible();
+      // Clearing an amount must clear the old difference and its validation.
+      await dialog
+        .getByLabel("Amount arriving (THB)", { exact: true })
+        .fill("");
+      await expect(values).toHaveCount(0);
+      await expect(dialog.getByRole("alert")).toHaveCount(0);
+      await dialog
+        .getByLabel("Amount arriving (THB)", { exact: true })
+        .fill(arriving);
+      await category.selectOption(fx);
+    }
+    if (outcome === "gain") {
+      await mkdir("test-results/visual", { recursive: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await values.scrollIntoViewIfNeeded();
+      await expect(values).toBeVisible();
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({
+        path: "test-results/visual/transfer-values-mobile.png",
+      });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await dialog.screenshot({
+        path: "test-results/visual/transfer-values-desktop.png",
+      });
+    }
+    await dialog.getByRole("button", { name: save, exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const s = await snapshot();
+    const entry = s.transactions.find(
+      (t) => t.description === `SGD transfer ${outcome}`,
+    )!;
+    expect(!!entry.posted_at).toBe(outcome !== "loss");
+    const lines = s.lines.filter((l) => l.transaction_id === entry.id);
+    expect(lines).toHaveLength(outcome === "balanced" ? 2 : 3);
+    expect(lines.find((l) => l.account_id === source)).toMatchObject({
+      amount: "20000.00000000",
+      currency_code: "SGD",
+      book_amount: "480000.00000000",
+      rate_source: "carrying_value",
+    });
+    expect(lines.find((l) => l.account_id === destination)?.book_amount).toBe(
+      `${arriving}.00000000`,
+    );
+    if (outcome !== "balanced")
+      expect(lines.find((l) => l.account_id === fx)).toMatchObject({
+        side: outcome === "gain" ? "credit" : "debit",
+        book_amount: "20000.00000000",
+      });
+  }
+  // Reversing direction exposes only the destination conversion rate, and it
+  // updates the same calculation that will be posted.
+  await page.getByRole("button", { name: "+ Add entry" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("What happened?").selectOption("transfer");
+  await dialog
+    .getByLabel("Money account", { exact: true })
+    .selectOption(destination);
+  await dialog.getByLabel("Move to", { exact: true }).selectOption(source);
+  await dialog
+    .getByLabel("Amount leaving (THB)", { exact: true })
+    .fill("25000");
+  await dialog
+    .getByLabel("Amount arriving (SGD)", { exact: true })
+    .fill("1000");
+  await dialog.getByLabel("Destination exchange rate (SGD → THB)").fill("25");
+  const values = dialog.getByRole("region", {
+    name: "Transfer home-currency values",
+  });
+  await expect(values).toContainText("No FX / rounding differenceTHB 0.00");
+  await dialog.getByLabel("Destination exchange rate (SGD → THB)").fill("24");
+  await expect(values).toContainText("FX / rounding lossTHB 1,000.00");
+  await dialog.getByLabel("Amount arriving (SGD)").fill("0");
+  await expect(values).toHaveCount(0);
+});
+
 test("business and personal journeys, payments, reports, themes, keyboard and failures", async ({
   page,
 }) => {

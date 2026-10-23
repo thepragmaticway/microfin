@@ -9,8 +9,10 @@ import {
 } from "../../src/lib/reports";
 import {
   buildGuided,
+  previewTransfer,
   buildPayment,
   refreshDraftCarrying,
+  type GuidedInput,
 } from "../../src/lib/guided";
 import type { Account, Snapshot, EventInput } from "../../src/lib/types";
 const id = () => crypto.randomUUID();
@@ -105,6 +107,114 @@ function guided(
   });
 }
 describe("exact money and financial journeys", () => {
+  it.each([
+    {
+      arriving: "500000",
+      difference: "20000.00",
+      side: "credit",
+      outcome: "gain",
+    },
+    {
+      arriving: "460000",
+      difference: "-20000.00",
+      side: "debit",
+      outcome: "loss",
+    },
+    { arriving: "480000", difference: "0.00", side: null, outcome: "balanced" },
+  ])(
+    "previews a transfer $outcome before FX selection and posts the same values",
+    ({ arriving, difference, side, outcome }) => {
+      const { s, bank, sgd, revenue, fx } = fixture();
+      s.workspace.functional_currency_code = "THB";
+      bank.currency_code = "THB";
+      append(s, guided(s, "income", sgd.id, revenue.id, "20000", "SGD", "24"));
+      const p: GuidedInput = {
+        id: id(),
+        kind: "transfer" as const,
+        accounting_date: "2026-10-24",
+        description: "Convert SGD to THB",
+        party_id: null,
+        source_id: sgd.id,
+        destination_id: bank.id,
+        amount: "20000",
+        currency: "THB",
+        rate: "99",
+        destination_amount: arriving,
+        destination_rate: "1",
+        splits: [],
+      };
+      expect(previewTransfer(s, p)).toEqual({
+        outgoing: "480000.00",
+        incoming: `${arriving}.00`,
+        difference,
+      });
+      if (side) {
+        expect(() => buildGuided(s, p)).toThrow(`THB 20,000.00 ${outcome}`);
+        expect(() => buildGuided(s, { ...p, fx_account_id: bank.id })).toThrow(
+          /Choose an FX/,
+        );
+      }
+      const event = buildGuided(s, {
+        ...p,
+        fx_account_id: side ? fx.id : undefined,
+      });
+      expect(event.lines).toHaveLength(side ? 3 : 2);
+      expect(event.lines.find((l) => l.account_id === sgd.id)).toMatchObject({
+        amount: "20000.00",
+        currency_code: "SGD",
+        book_amount: "480000.00",
+        rate_source: "carrying_value",
+      });
+      expect(event.lines.find((l) => l.account_id === bank.id)).toMatchObject({
+        amount: `${arriving}.00`,
+        currency_code: "THB",
+        book_amount: `${arriving}.00`,
+      });
+      if (side)
+        expect(event.lines.find((l) => l.account_id === fx.id)).toMatchObject({
+          side,
+          book_amount: "20000.00",
+          currency_code: "THB",
+        });
+      expect(() => previewTransfer(s, { ...p, amount: "20001" })).toThrow(
+        /exceeds available/,
+      );
+    },
+  );
+  it("converts a foreign destination and preserves a foreign card repayment’s carried value", () => {
+    const { s, bank, sgd, capital } = fixture();
+    const card = account("SGD card", "liability", "credit_card", "SGD");
+    s.accounts.push(card);
+    append(
+      s,
+      guided(s, "opening_balance", card.id, capital.id, "100", "SGD", "0.75"),
+    );
+    const p: GuidedInput = {
+      id: id(),
+      kind: "transfer" as const,
+      accounting_date: "2026-10-24",
+      description: "Receive SGD",
+      party_id: null,
+      source_id: bank.id,
+      destination_id: sgd.id,
+      amount: "8",
+      currency: "USD",
+      rate: "1",
+      destination_amount: "10",
+      destination_rate: "0.8",
+      splits: [],
+    };
+    expect(previewTransfer(s, p)).toEqual({
+      outgoing: "8.00",
+      incoming: "8.00",
+      difference: "0.00",
+    });
+    expect(previewTransfer(s, { ...p, destination_id: card.id })).toEqual({
+      outgoing: "8.00",
+      incoming: "7.50",
+      difference: "-0.50",
+    });
+  });
   it("keeps decimals exact and assigns the final carrying remainder", () => {
     expect(convert("0.1", "0.2")).toBe("0.02");
     expect(carrying("0.01", "0.03", "0.01")).toBe("0.00");
