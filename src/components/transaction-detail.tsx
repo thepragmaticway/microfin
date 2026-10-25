@@ -6,6 +6,7 @@ import { workspaceToday } from "@/lib/reports";
 import { refreshDraftCarrying } from "@/lib/guided";
 import type { EventInput, Snapshot, Transaction } from "@/lib/types";
 import { Action, Field, Notice } from "./ui";
+import { ManualJournalForm } from "./manual-journal-form";
 export function TransactionDetail({
   snapshot: s,
   transaction: t,
@@ -123,6 +124,8 @@ export function TransactionDetail({
       setBusy(false);
     }
   }
+  if (!t.posted_at && t.kind === "adjustment")
+    return <ManualJournalForm snapshot={s} initialEvent={event} done={done} />;
   return (
     <div>
       <div className="section-head">

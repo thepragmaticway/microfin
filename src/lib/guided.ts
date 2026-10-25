@@ -137,6 +137,15 @@ function bookDifference(lines: Line[]) {
     d(0),
   );
 }
+export function carriedLines(s: Snapshot, input: Line[]): Line[] {
+  const lines = input
+    .map((l) => ({ ...l }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const balances = new Map<string, { native: string; book: string }>();
+  // Match SQL's allocation order, including receipts in this atomic event.
+  lines.forEach((l) => discharge(s, l, balances, lines));
+  return lines;
+}
 function balanceFx(s: Snapshot, lines: Line[], fxId?: string) {
   const difference = bookDifference(lines);
   if (difference.isZero()) return;
@@ -205,12 +214,8 @@ function guidedEvent(s: Snapshot, p: GuidedInput): EventInput {
       ),
     );
   }
-  const balances = new Map<string, { native: string; book: string }>();
-  // SQL verifies discharges in ID order; builders must use that same order.
-  lines
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .forEach((l) => discharge(s, l, balances, lines));
-  const control = lines.find((l) =>
+  const carried = carriedLines(s, lines);
+  const control = carried.find((l) =>
     ["receivable", "payable"].includes(account(l.account_id).role),
   );
   return {
@@ -219,7 +224,7 @@ function guidedEvent(s: Snapshot, p: GuidedInput): EventInput {
     kind: p.kind,
     description: p.description,
     party_id: p.party_id,
-    lines,
+    lines: carried,
     obligation: control
       ? {
           id: crypto.randomUUID(),

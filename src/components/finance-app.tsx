@@ -3,7 +3,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { d, displayMoney, money } from "@/lib/money";
+import { d, displayMoney } from "@/lib/money";
+import { activityAmount, summarizeActivity } from "@/lib/activity";
+import type { ReportMode } from "@/lib/report-detail";
 import {
   accountBalance,
   openItems,
@@ -24,6 +26,8 @@ import { actionLabels, EntryForm } from "./entry-form";
 import { PaymentForm } from "./payment-form";
 import { TransactionDetail } from "./transaction-detail";
 import { ReportView } from "./report-view";
+import { AccountLedgerView } from "./account-ledger-view";
+import { ActivityReportView } from "./activity-report-view";
 type View =
   "overview" | "accounts" | "activity" | "unpaid" | "reports" | "contacts";
 type Modal =
@@ -55,6 +59,12 @@ export function FinanceApp() {
     [status, setStatus] = useState("all"),
     [from, setFrom] = useState(""),
     [to, setTo] = useState("");
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [activityMode, setActivityMode] = useState<"transactions" | ReportMode>("transactions");
+  // Accumulated-result detail needs all history without replacing the Reports period.
+  const [activityPeriod, setActivityPeriod] = useState<{ from: string; to: string } | null>(null);
+  const activityFrom = activityPeriod?.from ?? from;
+  const activityTo = activityPeriod?.to ?? to;
   const generation = useRef(0);
   const invalidate = useCallback(() => {
     generation.current++;
@@ -113,6 +123,9 @@ export function FinanceApp() {
     Promise.resolve().then(() => {
       if (workspaceId && active) {
         setAccountFilter("");
+        setSelectedAccountId("");
+        setActivityMode("transactions");
+        setActivityPeriod(null);
         setSearch("");
         setStatus("all");
         setModal(null);
@@ -131,6 +144,9 @@ export function FinanceApp() {
   const workspace = workspaces.find((w) => w.id === workspaceId),
     s = snapshot,
     code = s?.workspace.functional_currency_code ?? "THB";
+  const selectedAccount = view === "accounts"
+    ? s?.accounts.find((a) => a.id === selectedAccountId)
+    : undefined;
   const result = s ? reports(s, from, to) : null,
     items = s ? openItems(s) : [];
   const moneyAccounts =
@@ -149,8 +165,8 @@ export function FinanceApp() {
   const activity =
     s?.transactions.filter(
       (t) =>
-        (!from || t.accounting_date >= from) &&
-        (!to || t.accounting_date <= to) &&
+        (!activityFrom || t.accounting_date >= activityFrom) &&
+        (!activityTo || t.accounting_date <= activityTo) &&
         (!search ||
           t.description.toLowerCase().includes(search.toLowerCase())) &&
         (!accountFilter ||
@@ -160,45 +176,34 @@ export function FinanceApp() {
         (status === "all" ||
           (status === "draft" ? !t.posted_at : !!t.posted_at)),
     ) ?? [];
+  const activitySummary = s && view === "activity" && activityMode === "transactions"
+    ? summarizeActivity(s, activity, accountFilter)
+    : null;
+  const activityCurrency = s?.accounts.find((a) => a.id === accountFilter)?.currency_code;
   function navigate(target: View) {
     setView(target);
+    setActivityPeriod(null);
     setAccountFilter("");
+    setSelectedAccountId("");
   }
-  function transactionAmount(t: Transaction) {
-    if (accountFilter && view === "activity")
-      return money(
-        s!.lines
-          .filter(
-            (l) => l.transaction_id === t.id && l.account_id === accountFilter,
-          )
-          .reduce(
-            (v, l) =>
-              v.plus(d(l.book_amount).times(l.side === "debit" ? 1 : -1)),
-            d(0),
-          ),
-      );
-    const bank = s!.lines.filter(
-      (l) =>
-        l.transaction_id === t.id &&
-        moneyAccounts.some((a) => a.id === l.account_id),
-    );
-    const lines = bank.length
-      ? bank
-      : s!.lines.filter((l) => l.transaction_id === t.id && l.side === "debit");
-    return money(
-      lines.reduce(
-        (v, l) =>
-          v.plus(
-            d(l.book_amount).times(bank.length && l.side === "credit" ? -1 : 1),
-          ),
-        d(0),
-      ),
-    );
+  function openAccumulated(asOf: string) {
+    setActivityPeriod({ from: "", to: asOf });
+    setActivityMode("profit_loss");
+    setAccountFilter("");
+    setSearch("");
+    setStatus("posted");
+    setView("activity");
+  }
+  function openAccount(id: string) {
+    navigate("accounts");
+    setSelectedAccountId(id);
   }
   function recentRows(rows: Transaction[]) {
     return rows.length ? (
       <div className="rows">
-        {rows.map((t) => (
+        {rows.map((t) => {
+          const amount = activityAmount(s!, t, view === "activity" ? accountFilter : "");
+          return (
           <button
             key={t.id}
             className="row text-left"
@@ -225,47 +230,27 @@ export function FinanceApp() {
               </small>
             </span>
             <span
-              className={`row-amount ${d(transactionAmount(t)).lt(0) ? "" : "positive"}`}
+              className={`row-amount ${d(amount.book).lt(0) ? "" : "positive"}`}
             >
-              {displayMoney(transactionAmount(t), code)}
-              {accountFilter &&
-                view === "activity" &&
-                s!.accounts.find((a) => a.id === accountFilter)
-                  ?.currency_code && (
+              {displayMoney(amount.book, code)}
+              {amount.native !== null && activityCurrency && (
                   <>
                     <br />
                     <small>
-                      {displayMoney(
-                        money(
-                          s!.lines
-                            .filter(
-                              (l) =>
-                                l.transaction_id === t.id &&
-                                l.account_id === accountFilter,
-                            )
-                            .reduce(
-                              (v, l) =>
-                                v.plus(
-                                  d(l.amount).times(
-                                    l.side === "debit" ? 1 : -1,
-                                  ),
-                                ),
-                              d(0),
-                            ),
-                        ),
-                        s!.accounts.find((a) => a.id === accountFilter)!
-                          .currency_code!,
-                      )}
+                      {displayMoney(amount.native, activityCurrency)}
                     </small>
                   </>
                 )}
             </span>
           </button>
-        ))}
+          );
+        })}
       </div>
     ) : (
-      <Empty title="Your story starts here">
-        Record your first entry. We’ll keep the amounts and currencies together.
+      <Empty title={view === "activity" ? "No entries match your filters" : "Your story starts here"}>
+        {view === "activity"
+          ? "Try another description, account, status, or date range."
+          : "Record your first entry. We’ll keep the amounts and currencies together."}
       </Empty>
     );
   }
@@ -398,7 +383,7 @@ export function FinanceApp() {
                       {view === "overview"
                         ? "A little more clarity."
                         : view === "accounts"
-                          ? "Your money, in its places."
+                          ? selectedAccount?.name ?? "Your money, in its places."
                           : view === "activity"
                             ? "Every little movement."
                             : view === "unpaid"
@@ -411,7 +396,9 @@ export function FinanceApp() {
                       {view === "overview"
                         ? "What you have, what’s moving, and what’s next."
                         : view === "accounts"
-                          ? "Balances, categories, and currencies. All in one place."
+                          ? selectedAccount
+                            ? "Debits, credits, and the balance behind every entry."
+                            : "Balances, categories, and currencies. All in one place."
                           : view === "activity"
                             ? "Recorded entries and drafts, with their original rates."
                             : view === "unpaid"
@@ -425,16 +412,16 @@ export function FinanceApp() {
                     onPress={() =>
                       setModal(
                         view === "accounts"
-                          ? { type: "account" }
+                          ? { type: "account", account: selectedAccount }
                           : view === "contacts"
                             ? { type: "party" }
                             : { type: "entry", kind: "expense" },
                       )
                     }
                   >
-                    +{" "}
+                    {!selectedAccount && "+ "}
                     {view === "accounts"
-                      ? "Add account"
+                      ? selectedAccount ? "Edit account" : "Add account"
                       : view === "contacts"
                         ? "Add contact"
                         : "Add entry"}
@@ -542,11 +529,7 @@ export function FinanceApp() {
                               key={a.id}
                               account={a}
                               snapshot={s}
-                              open={() => {
-                                navigate("activity");
-                                setAccountFilter(a.id);
-                                setFrom("");
-                              }}
+                              open={() => openAccount(a.id)}
                             />
                           ))}
                         </div>
@@ -567,7 +550,17 @@ export function FinanceApp() {
                     </section>
                   </>
                 )}
-                {view === "accounts" && (
+                {view === "accounts" && selectedAccount && (
+                  <AccountLedgerView
+                    key={s.workspace.id}
+                    snapshot={s}
+                    account={selectedAccount}
+                    select={setSelectedAccountId}
+                    back={() => setSelectedAccountId("")}
+                    openEntry={(transaction) => setModal({ type: "detail", transaction })}
+                  />
+                )}
+                {view === "accounts" && !selectedAccount && (
                   <>
                     <div className="account-grid">
                       {s.accounts
@@ -581,9 +574,7 @@ export function FinanceApp() {
                             key={a.id}
                             account={a}
                             snapshot={s}
-                            open={() =>
-                              setModal({ type: "account", account: a })
-                            }
+                            open={() => openAccount(a.id)}
                           />
                         ))}
                     </div>
@@ -614,7 +605,14 @@ export function FinanceApp() {
                                   {a.type === "expense" ? "↗" : "◈"}
                                 </span>
                                 <div className="row-main">
-                                  <strong>{a.name}</strong>
+                                  <button
+                                    className="text-action account-ledger-link"
+                                    aria-label={`View ledger for ${a.name}`}
+                                    onClick={() => openAccount(a.id)}
+                                  >
+                                    <strong>{a.name}</strong>
+                                    <span aria-hidden> ↗</span>
+                                  </button>
                                   <small>
                                     {a.type} · {a.role.replace("_", " ")} ·{" "}
                                     {a.currency_code ?? "any currency"}
@@ -643,7 +641,24 @@ export function FinanceApp() {
                 )}
                 {view === "activity" && (
                   <section className="panel">
+                    {activityPeriod && <div className="section-head">
+                      <p className="muted">Exploring accumulated results. Your Reports period is preserved.</p>
+                      <button className="text-action" onClick={() => navigate("reports")}>← Back to Reports</button>
+                    </div>}
                     <div className="filters">
+                      <Field label="Activity view">
+                        <select
+                          value={activityMode}
+                          onChange={(e) => {
+                            setActivityMode(e.target.value as "transactions" | ReportMode);
+                            setAccountFilter("");
+                          }}
+                        >
+                          <option value="transactions">Transactions</option>
+                          <option value="profit_loss">Profit &amp; loss</option>
+                          <option value="balance_sheet">Balance sheet</option>
+                        </select>
+                      </Field>
                       <Field label="Search entries">
                         <input
                           value={search}
@@ -657,14 +672,15 @@ export function FinanceApp() {
                           onChange={(e) => setAccountFilter(e.target.value)}
                         >
                           <option value="">All accounts</option>
-                          {s.accounts.map((a) => (
+                          {s.accounts.filter((a) => activityMode !== "profit_loss" ||
+                            ["revenue", "expense"].includes(a.type)).map((a) => (
                             <option key={a.id} value={a.id}>
                               {a.name}
                             </option>
                           ))}
                         </select>
                       </Field>
-                      <Field label="Status">
+                      {activityMode === "transactions" && <Field label="Status">
                         <select
                           value={status}
                           onChange={(e) => setStatus(e.target.value)}
@@ -673,15 +689,61 @@ export function FinanceApp() {
                           <option value="posted">Recorded</option>
                           <option value="draft">Drafts</option>
                         </select>
-                      </Field>
+                      </Field>}
                     </div>
                     <DateFilters
-                      from={from}
-                      to={to}
-                      setFrom={setFrom}
-                      setTo={setTo}
+                      from={activityFrom}
+                      to={activityTo}
+                      setFrom={(value) => activityPeriod
+                        ? setActivityPeriod({ ...activityPeriod, from: value }) : setFrom(value)}
+                      setTo={(value) => activityPeriod
+                        ? setActivityPeriod({ ...activityPeriod, to: value }) : setTo(value)}
+                      asOfOnly={activityMode === "balance_sheet"}
                     />
-                    {recentRows(activity)}
+                    {activitySummary && (
+                      <section aria-label="Activity summary">
+                        <h2>Transaction totals</h2>
+                        <div className="stats" aria-live="polite" aria-atomic="true">
+                          <div className="stat">
+                            <div className="stat-label">Matching entries</div>
+                            <div className="stat-value">{activity.length}</div>
+                            <div className="stat-foot">
+                              {activitySummary.recorded.count} recorded · {activitySummary.drafts.count} drafts
+                            </div>
+                          </div>
+                          {([
+                            ["recorded", "Recorded total"],
+                            ["drafts", "Draft total"],
+                          ] as const).map(([key, label]) => (
+                            <div className="stat" key={key}>
+                              <div className="stat-label">{label}</div>
+                              <div className="stat-value">{displayMoney(activitySummary[key].book, code)}</div>
+                              {activityCurrency && activityCurrency !== code && activitySummary[key].native !== null && (
+                                <div className="stat-foot">{displayMoney(activitySummary[key].native, activityCurrency)}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="muted">
+                          Totals sum the amounts shown below in {code}, including reversals. Drafts are separate.
+                          {accountFilter
+                            ? " Debits are positive; credits are negative."
+                            : " Transfers between money accounts can net to zero."}
+                        </p>
+                      </section>
+                    )}
+                    {activityMode === "transactions" ? recentRows(activity) : (
+                      <ActivityReportView
+                        snapshot={s}
+                        mode={activityMode}
+                        from={activityFrom}
+                        to={activityTo}
+                        search={search}
+                        accountId={accountFilter}
+                        openEntry={(transaction) => setModal({ type: "detail", transaction })}
+                        openAccumulated={() => openAccumulated(activityTo)}
+                      />
+                    )}
                   </section>
                 )}
                 {view === "unpaid" && (
@@ -788,12 +850,14 @@ export function FinanceApp() {
                       snapshot={s}
                       from={from}
                       to={to}
+                      openAccumulated={() => openAccumulated(to)}
                       drill={(id, period) => {
                         setView("activity");
+                        setActivityPeriod(null);
+                        setActivityMode(period ? "profit_loss" : "balance_sheet");
                         setAccountFilter(id);
                         setSearch("");
                         setStatus("posted");
-                        if (!period) setFrom("");
                       }}
                     />
                   </>
@@ -827,6 +891,11 @@ export function FinanceApp() {
       </div>
       {modal && (
         <Dialog
+          presentation={
+            modal.type === "entry" || modal.type === "detail"
+              ? "sheet"
+              : "dialog"
+          }
           title={
             modal.type === "workspace"
               ? "A new space"
@@ -886,25 +955,27 @@ function DateFilters({
   to,
   setFrom,
   setTo,
+  asOfOnly = false,
 }: {
   from: string;
   to: string;
   setFrom: (v: string) => void;
   setTo: (v: string) => void;
+  asOfOnly?: boolean;
 }) {
   return (
     <div className="filters">
-      <Field label="From">
+      {!asOfOnly && <Field label="From">
         <input
           aria-label="From date"
           type="date"
           value={from}
           onChange={(e) => setFrom(e.target.value)}
         />
-      </Field>
-      <Field label="Through / as of">
+      </Field>}
+      <Field label={asOfOnly ? "As of" : "Through / as of"}>
         <input
-          aria-label="Through date"
+          aria-label={asOfOnly ? "As of date" : "Through date"}
           type="date"
           value={to}
           onChange={(e) => setTo(e.target.value)}
@@ -944,7 +1015,7 @@ function AccountCard({
       <div className="account-footer">
         <span>{a.is_active ? "Available" : "Inactive"}</span>
         <button className="text-action" onClick={open}>
-          Open ↗
+          Open ledger ↗
         </button>
       </div>
     </article>

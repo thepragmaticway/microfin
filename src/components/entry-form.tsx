@@ -12,6 +12,7 @@ import { d, displayMoney } from "@/lib/money";
 import { workspaceToday } from "@/lib/reports";
 import type { Account, EventInput, Kind, Snapshot } from "@/lib/types";
 import { Action, Field, Notice } from "./ui";
+import { ManualJournalForm } from "./manual-journal-form";
 export const actionLabels: Partial<Record<Kind, string>> = {
   income: "Receive money",
   expense: "Spend money",
@@ -23,6 +24,7 @@ export const actionLabels: Partial<Record<Kind, string>> = {
   invoice: "Record client invoice",
   bill: "Record supplier bill",
   opening_balance: "Add opening balance",
+  adjustment: "Manual journal entry",
 };
 function choices(s: Snapshot, kind: Kind) {
   const active = s.accounts.filter((a) => a.is_active),
@@ -150,6 +152,24 @@ export function EntryForm({
       setBusy(false);
     }
   }
+  if (kind === "adjustment")
+    return (
+      <ManualJournalForm
+        snapshot={s}
+        done={done}
+        actions={actionLabels}
+        onKindChange={(next) => {
+          setKind(next);
+          setSplits([]);
+          setSourceId("");
+          setDestinationId("");
+          setTransferValues(null);
+          setPreview(null);
+          setError("");
+          pending.current = null;
+        }}
+      />
+    );
   return (
     <form
       ref={form}

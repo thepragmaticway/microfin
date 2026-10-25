@@ -5,10 +5,12 @@ export function Dialog({
   title,
   close,
   children,
+  presentation = "dialog",
 }: {
   title: string;
   close: () => void;
   children: ReactNode;
+  presentation?: "dialog" | "sheet";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(
@@ -28,7 +30,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      className="dialog"
+      className={`dialog${presentation === "sheet" ? " dialog-sheet" : ""}`}
       onCancel={(e) => {
         e.preventDefault();
         close();

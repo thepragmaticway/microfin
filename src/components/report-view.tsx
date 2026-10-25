@@ -2,16 +2,19 @@
 import { d, displayMoney, money } from "@/lib/money";
 import { reports } from "@/lib/reports";
 import type { Snapshot } from "@/lib/types";
+import { AccumulatedResult } from "./accumulated-result";
 export function ReportView({
   snapshot: s,
   from,
   to,
   drill,
+  openAccumulated,
 }: {
   snapshot: Snapshot;
   from: string;
   to: string;
   drill: (id: string, period: boolean) => void;
+  openAccumulated: () => void;
 }) {
   const r = reports(s, from, to),
     code = s.workspace.functional_currency_code;
@@ -85,10 +88,7 @@ export function ReportView({
           <span>{displayMoney(r.liabilities, code)}</span>
         </div>
         {group("Owner equity", "equity", false, -1)}
-        <div className="report-line">
-          <span>Accumulated result</span>
-          <span>{displayMoney(r.unclosed, code)}</span>
-        </div>
+        <AccumulatedResult amount={r.unclosed} currency={code} open={openAccumulated} />
         <div className="report-total">
           <span>Total equity</span>
           <span>{displayMoney(r.equity, code)}</span>

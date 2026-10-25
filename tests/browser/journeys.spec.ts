@@ -348,6 +348,8 @@ test("business and personal journeys, payments, reports, themes, keyboard and fa
   ).toBeVisible();
   await expect(page.getByText("✓ Assets = liabilities + equity")).toBeVisible();
   await page.getByRole("button", { name: "Office rent ↗" }).click();
+  await expect(page.getByLabel("Activity view")).toHaveValue("profit_loss");
+  await page.getByRole("region", { name: "Matching account details", exact: true }).locator("summary").click();
   await expect(
     page.getByRole("button", { name: /October office rent/ }),
   ).toBeVisible();
@@ -355,6 +357,8 @@ test("business and personal journeys, payments, reports, themes, keyboard and fa
     page.getByRole("button", { name: /Unrecorded office rent/ }),
   ).toHaveCount(0);
   await expect(page.getByLabel("Search entries")).toHaveValue("");
+  await expect(page.getByLabel("Status", { exact: true })).toHaveCount(0);
+  await page.getByLabel("Activity view").selectOption("transactions");
   await expect(page.getByLabel("Status", { exact: true })).toHaveValue(
     "posted",
   );
@@ -366,6 +370,10 @@ test("business and personal journeys, payments, reports, themes, keyboard and fa
   await page
     .getByRole("button", { name: "Bangkok bank ↗", exact: true })
     .click();
+  await expect(page.getByLabel("Activity view")).toHaveValue("balance_sheet");
+  await expect(page.getByLabel("From date")).toHaveCount(0);
+  await expect(page.getByLabel("As of date")).toHaveValue(reportThrough);
+  await page.getByRole("region", { name: "Matching account details", exact: true }).locator("summary").click();
   await expect(
     page.getByRole("button", { name: /Initial owner money/ }),
   ).toBeVisible();
@@ -373,10 +381,12 @@ test("business and personal journeys, payments, reports, themes, keyboard and fa
     page.getByRole("button", { name: /Unrecorded office rent/ }),
   ).toHaveCount(0);
   await expect(page.getByLabel("Search entries")).toHaveValue("");
+  await expect(page.getByLabel("Status", { exact: true })).toHaveCount(0);
+  await page.getByLabel("Activity view").selectOption("transactions");
   await expect(page.getByLabel("Status", { exact: true })).toHaveValue(
     "posted",
   );
-  await expect(page.getByLabel("From date")).toHaveValue("");
+  await expect(page.getByLabel("From date")).toHaveValue(reportFrom);
   await expect(page.getByLabel("Through date")).toHaveValue(reportThrough);
   await page.getByLabel("From date").fill(reportFrom);
   const currentFrom = await page.getByLabel("From date").inputValue(),
