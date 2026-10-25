@@ -27,12 +27,14 @@ export function ActivityReportView({
   openAccumulated: () => void;
 }) {
   const profitLoss = mode === "profit_loss";
-  if (profitLoss && from && to && from > to)
+  const movement = mode === "balance_movement";
+  if (mode !== "balance_sheet" && from && to && from > to)
     return <Notice error message="From date must be on or before through date." />;
   const detail = reportDetail(snapshot, mode, { from, to, search, accountId, group });
   const code = snapshot.workspace.functional_currency_code;
   const metrics = profitLoss
     ? [["revenue", "Total income"], ["expenses", "Total expenses"], ["profit", "Net profit / loss"]] as const
+    : movement ? [["assets", "Asset movement"], ["liabilities", "Liability movement"], ["equity", "Equity movement"]] as const
     : [["assets", "Total assets"], ["liabilities", "Total liabilities"], ["equity", "Total equity"]] as const;
   function totals(result: typeof detail.full) {
     return (
@@ -50,13 +52,13 @@ export function ActivityReportView({
     <div className="activity-report">
       <section aria-label="Complete report totals">
         <div className="eyebrow">COMPLETE REPORT TOTALS</div>
-        <h2>{profitLoss ? "Profit & loss" : "Balance sheet"}</h2>
+        <h2>{profitLoss ? "Profit & loss" : movement ? "Balance sheet movement" : "Balance sheet"}</h2>
         <p className="muted">
-          {profitLoss ? `${from || "All dates"} — ${to || "All dates"}` : `As of ${to || "all dates"}`}
+          {profitLoss || movement ? `${from || "All dates"} — ${to || "All dates"}` : `As of ${to || "all dates"}`}
           {" · "}{code} · Posted historical values, including reversals. Drafts excluded.
         </p>
         {totals(detail.full)}
-        {!profitLoss && <>
+        {mode === "balance_sheet" && <>
           <div className="report-line">
             <span>Owner equity</span>
             <span>{displayMoney(detail.full.contributedEquity, code)}</span>

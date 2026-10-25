@@ -854,6 +854,18 @@ html:has(.dialog-sheet[open]) {
   gap: 12px;
   margin-bottom: 20px;
 }
+.scenario-view, .scenario-form { display: grid; gap: 20px; min-width: 0; }
+.scenario-view .panel, .scenario-opening { min-width: 0; }
+.scenario-view .section-head { flex-wrap: wrap; gap: 12px; }
+.scenario-view .section-head > div { min-width: 0; overflow-wrap: anywhere; }
+.scenario-openings, .scenario-replay { display: grid; gap: 12px; }
+.scenario-opening { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.scenario-opening strong small, .scenario-opening span small, .scenario-choice small, .scenario-entry small { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.scenario-choice { display: flex; gap: 12px; align-items: center; border-bottom: 1px solid var(--line); padding: 12px 0; cursor: pointer; }
+.scenario-choice input { width: 18px; height: 18px; flex: 0 0 auto; }
+.scenario-actions { display: flex; gap: 20px; flex-wrap: wrap; }
+.scenario-entry { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; padding: 16px 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; text-align: left; cursor: pointer; }
+.scenario-entry span { overflow-wrap: anywhere; }
 .report-switch {
   display: inline-flex;
   flex-wrap: wrap;

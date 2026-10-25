@@ -320,3 +320,45 @@ test("malformed input, forged origin, draft exclusion and conflicting retry are 
     400,
   );
 });
+test("saved scenarios persist frozen sources with real Auth, strict input and workspace isolation", async () => {
+  const w = uuid(), second = uuid();
+  for (const id of [w, second]) {
+    const r = await request("/api/workspaces", { id, name: "Scenario API", kind: "business", functional_currency_code: "USD", timezone: "UTC" });
+    assert.equal(r.response.status, 200, JSON.stringify(r.value));
+  }
+  const path = `/api/workspaces/${w}/scenarios`;
+  const p = { id: uuid(), name: "Saved API experiment", start_date: "2026-10-01", end_date: "2026-10-31", opening_mode: "actual", opening_balances: [], selected_transaction_ids: [] };
+  const before = (await request(`/api/workspaces/${w}`)).value.data;
+  let r = await request(path, p);
+  assert.equal(r.response.status, 200, JSON.stringify(r.value));
+  assert.equal(r.value.data, p.id);
+  const summary = (await request(path)).value.data;
+  assert.equal(summary.length, 1); assert.equal(summary[0].name, p.name);
+  assert.equal(summary[0].source_snapshot, undefined, "List should only return summary fields");
+  const frozen = (await request(`${path}/${p.id}`)).value.data;
+  assert.deepEqual(frozen.source_snapshot, before);
+  assert.deepEqual((await request(`/api/workspaces/${w}`)).value.data, before);
+  for (const route of [path, `${path}/${p.id}`]) {
+    assert.equal((await request(route, undefined, "")).response.status, 401);
+    assert.equal((await request(route, undefined, otherCookies)).response.status, 403);
+  }
+  assert.equal((await request(path, p, otherCookies)).response.status, 403);
+  assert.equal((await request(`${path}/${p.id}`, { action: "delete" }, otherCookies)).response.status, 403);
+  assert.equal((await request(`/api/workspaces/${second}/scenarios/${p.id}`)).response.status, 403);
+  assert.equal((await request(path, { ...p, id: uuid() }, cookies, "https://forged.example")).response.status, 403);
+  for (const invalid of [
+    { ...p, id: uuid(), start_date: "2026-02-30" }, { ...p, id: uuid(), end_date: "2026-09-01" },
+    { ...p, id: uuid(), source_snapshot: before }, { ...p, id: uuid(), selected_transaction_ids: [uuid(), uuid(), "bad"] },
+  ]) assert.equal((await request(path, invalid)).response.status, 400);
+  assert.equal((await request(path, { ...p, id: uuid(), selected_transaction_ids: [uuid()] })).response.status, 409);
+  const account = { id: uuid(), name: "Added after capture", type: "equity", role: "general", currency_code: null, is_active: true };
+  assert.equal((await request(`/api/workspaces/${w}/accounts`, account)).response.status, 200);
+  assert.deepEqual((await request(`${path}/${p.id}`)).value.data, frozen);
+  assert.equal((await request(path, p)).response.status, 200, "Identical retry retains the capture");
+  assert.equal((await request(path, { ...p, name: "Rewrite" })).response.status, 409);
+  const current = (await request(`/api/workspaces/${w}`)).value.data;
+  assert.equal((await request(`${path}/${p.id}`, { action: "delete" })).response.status, 200);
+  assert.equal((await request(path)).value.data.length, 0);
+  assert.equal((await request(`${path}/${p.id}`)).response.status, 403);
+  assert.deepEqual((await request(`/api/workspaces/${w}`)).value.data, current);
+});

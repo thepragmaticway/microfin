@@ -6,7 +6,7 @@ Current scope: registration, personal/business workspaces, multi-currency accoun
 
 Deferred: documents, imports, matching/reconciliation, revaluation, payroll recording, and budgets. These have no tables, foreign keys, or transaction kinds in this version. Payroll entries in [ACCOUNTING_EXAMPLE.md](ACCOUNTING_EXAMPLE.md) remain educational examples, not a current payroll feature commitment.
 
-## 1. Core structure: nine tables
+## 1. Core structure: nine ledger tables and scenario storage
 
 | Table | Purpose |
 |---|---|
@@ -19,6 +19,7 @@ Deferred: documents, imports, matching/reconciliation, revaluation, payroll reco
 | `journal_lines` | Actual debit/credit amounts, currencies, and conversion rates |
 | `obligations` | Metadata for an unpaid invoice or bill |
 | `settlements` | Links between an obligation and its payment postings |
+| `financial_scenarios` | Isolated, immutable experiments with an opening configuration and frozen source snapshot |
 
 Changes that remove duplication:
 
@@ -51,7 +52,7 @@ The UI can still use simple actions such as Spend money or Buy equipment. The ap
 | `display_name` | text | Required |
 | `created_at` | timestamptz | Required |
 
-Supabase Auth manages registration, email, credentials, and sessions. The public profile stores only display metadata; it does not duplicate the authentication subject or email. Auth provider tables are outside these nine application entities.
+Supabase Auth manages registration, email, credentials, and sessions. The public profile stores only display metadata; it does not duplicate the authentication subject or email. Auth provider tables are outside these application entities.
 
 ### `currencies`
 

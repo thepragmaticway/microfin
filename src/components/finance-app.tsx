@@ -29,6 +29,8 @@ import { ReportView } from "./report-view";
 import { AccountLedgerView } from "./account-ledger-view";
 import { ActivityReportView } from "./activity-report-view";
 import { GraphicalReportsView } from "./graphical-reports-view";
+import { BalanceMovementView } from "./balance-movement-view";
+import { ScenariosView } from "./scenarios-view";
 type View =
   "overview" | "accounts" | "activity" | "unpaid" | "reports" | "contacts";
 type Modal =
@@ -63,7 +65,7 @@ export function FinanceApp() {
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [activityMode, setActivityMode] = useState<"transactions" | ReportMode>("transactions");
   const [activityGroup, setActivityGroup] = useState<ReportGroup>("all");
-  const [reportPresentation, setReportPresentation] = useState<"detailed" | "graphical">("detailed");
+  const [reportPresentation, setReportPresentation] = useState<"detailed" | "graphical" | "movement" | "scenarios">("detailed");
   const [graphicalMode, setGraphicalMode] = useState<ReportMode>("profit_loss");
   const [reportCategory, setReportCategory] = useState<"revenue" | "expense">("expense");
   // Chart and accumulated-result detail must not replace the saved Reports period.
@@ -672,6 +674,7 @@ export function FinanceApp() {
                           <option value="transactions">Transactions</option>
                           <option value="profit_loss">Profit &amp; loss</option>
                           <option value="balance_sheet">Balance sheet</option>
+                          <option value="balance_movement">Balance sheet movement</option>
                         </select>
                       </Field>
                       {activityMode !== "transactions" && <Field label="Report group">
@@ -876,20 +879,24 @@ export function FinanceApp() {
                       <div className="report-switch" role="group" aria-label="Report presentation">
                         <button aria-pressed={reportPresentation === "detailed"} onClick={() => setReportPresentation("detailed")}>Detailed</button>
                         <button aria-pressed={reportPresentation === "graphical"} onClick={() => setReportPresentation("graphical")}>Graphical</button>
+                        <button aria-pressed={reportPresentation === "movement"} onClick={() => setReportPresentation("movement")}>Movement</button>
+                        <button aria-pressed={reportPresentation === "scenarios"} onClick={() => setReportPresentation("scenarios")}>Scenarios</button>
                       </div>
                       {reportPresentation === "graphical" && <div className="report-switch" role="group" aria-label="Graphical report">
                         <button aria-pressed={graphicalMode === "profit_loss"} onClick={() => setGraphicalMode("profit_loss")}>Profit &amp; loss</button>
                         <button aria-pressed={graphicalMode === "balance_sheet"} onClick={() => setGraphicalMode("balance_sheet")}>Balance sheet</button>
                       </div>}
                     </div>
-                    <DateFilters
+                    {reportPresentation !== "scenarios" && <DateFilters
                       from={from}
                       to={to}
                       setFrom={setFrom}
                       setTo={setTo}
                       asOfOnly={reportPresentation === "graphical" && graphicalMode === "balance_sheet"}
-                    />
-                    {reportPresentation === "graphical" ? <GraphicalReportsView
+                    />}
+                    {reportPresentation === "scenarios" ? <ScenariosView key={s.workspace.id} source={s} from={from} to={to} />
+                    : reportPresentation === "movement" ? <BalanceMovementView snapshot={s} from={from} to={to} drill={openReportDetail} />
+                    : reportPresentation === "graphical" ? <GraphicalReportsView
                       snapshot={s} mode={graphicalMode} from={from} to={to}
                       category={reportCategory} setCategory={setReportCategory}
                       drill={openReportDetail} openAccumulated={() => openAccumulated(to)}

@@ -18,13 +18,13 @@ for (const [, name, body] of sql.matchAll(
     const m = line
       .trim()
       .match(
-        /^(\w+) (uuid|text|varchar\(\d+\)|numeric\(\d+,\d+\)|smallint|boolean|timestamptz|date)(?=\s|,|$)/,
+        /^(\w+) (uuid|text|jsonb|varchar\(\d+\)|numeric\(\d+,\d+\)|smallint|boolean|timestamptz|date)(?=\s|,|$)/,
       );
     if (!m) continue;
     const [, column, type] = m,
       nullable = !/not null|primary key/.test(line);
     tables[name].push(
-      `    ${column}: ${type === "boolean" ? "boolean" : type === "smallint" ? "number" : "string"}${nullable ? " | null" : ""};`,
+      `    ${column}: ${type === "jsonb" ? "unknown" : type === "boolean" ? "boolean" : type === "smallint" ? "number" : "string"}${nullable ? " | null" : ""};`,
     );
   }
 }

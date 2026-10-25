@@ -73,11 +73,62 @@ before(async () => {
 after(async () => {
   await stack?.stop();
 });
+test("scenario commands freeze owner data, validate openings/replay and never write the ledger", async () => {
+  const workspace = uuid(), otherWorkspace = uuid(), usd = uuid(), capital = uuid(), foreign = uuid();
+  for (const id of [workspace, otherWorkspace]) await rpc("create_workspace", [{ id, name: "Scenario test", kind: "business", functional_currency_code: "USD", timezone: "UTC" }]);
+  for (const [id, type, currency_code] of [[usd, "asset", "USD"], [capital, "equity", null], [foreign, "asset", "SGD"]])
+    await rpc("save_account", [workspace, { id, name: id, type, role: "general", currency_code, is_active: true }]);
+  const p = { id: uuid(), name: "Frozen experiment", start_date: "2026-10-01", end_date: "2026-10-31", opening_mode: "actual", opening_balances: [], selected_transaction_ids: [] };
+  const getSnapshot = async () => (await rpc("read_snapshot", [workspace])).rows[0].read_snapshot;
+  const before = await getSnapshot();
+  await rpc("save_scenario", [workspace, p]);
+  const read = async () => (await rpc("read_scenario", [workspace, p.id])).rows[0].read_scenario;
+  const frozen = await read();
+  assert.deepEqual(frozen.source_snapshot, before);
+  assert.deepEqual(await getSnapshot(), before);
+  await assert.rejects(asUser(db, uid2, (c) => c.query("select read_scenario($1,$2)", [workspace, p.id])), /Workspace not found/);
+  await assert.rejects(asUser(db, uid2, (c) => c.query("select save_scenario($1,$2)", [workspace, { ...p, id: uuid() }])), /Workspace not found/);
+  await assert.rejects(asUser(db, uid2, (c) => c.query("select delete_scenario($1,$2)", [workspace, p.id])), /Workspace not found/);
+  assert.equal((await asUser(db, uid2, (c) => c.query("select * from financial_scenarios"))).rowCount, 0);
+  await assert.rejects(rpc("read_scenario", [otherWorkspace, p.id]), /Scenario not found/);
+  await assert.rejects(rpc("save_scenario", [otherWorkspace, p]), /Scenario not found/);
+  await assert.rejects(asUser(db, uid1, (c) => c.query("delete from financial_scenarios where id=$1", [p.id])), /permission denied/);
+  await assert.rejects(asUser(db, uid1, (c) => c.query("update financial_scenarios set name='tampered' where id=$1", [p.id])), /permission denied/);
+  const invalid = (extra) => rpc("save_scenario", [workspace, { ...p, id: uuid(), opening_mode: "custom", ...extra }]);
+  await assert.rejects(invalid({ opening_balances: [{ account_id: usd, book_balance: "1", native_balance: "1" }] }), /equal/);
+  await assert.rejects(invalid({ opening_balances: [{ account_id: usd, book_balance: "0", native_balance: "1" }] }), /must match/);
+  await assert.rejects(invalid({ opening_balances: [{ account_id: usd, book_balance: "0", native_balance: null }] }), /native/);
+  await assert.rejects(invalid({ opening_balances: [{ account_id: uuid(), book_balance: "0", native_balance: null }] }), /workspace/);
+  await assert.rejects(invalid({ opening_balances: [{ account_id: usd, book_balance: 0, native_balance: "0" }] }), /Invalid opening/);
+  await assert.rejects(invalid({ source_snapshot: before }), /fields/);
+  await assert.rejects(invalid({ opening_balances: [{ account_id: capital, book_balance: "0", native_balance: null }, { account_id: capital, book_balance: "0", native_balance: null }] }), /unique/);
+  const contribution = event("contribution", [line(usd, "debit", "100"), line(capital, "credit", "100")]);
+  await rpc("save_event", [workspace, contribution, true]);
+  const draft = event("contribution", [line(usd, "debit", "10"), line(capital, "credit", "10")]);
+  await rpc("save_event", [workspace, draft, false]);
+  for (const selected_transaction_ids of [[draft.id], [contribution.id, contribution.id], [uuid()]])
+    await assert.rejects(invalid({ selected_transaction_ids }), /posted|unique/);
+  await assert.rejects(invalid({ end_date: "2026-09-30" }), /Start date/);
+  await rpc("save_scenario", [workspace, p]);
+  assert.deepEqual(await read(), frozen, "Retry must preserve the original snapshot after actual postings");
+  await assert.rejects(rpc("save_scenario", [workspace, { ...p, name: "changed" }]), /immutable/);
+  const custom = { ...p, id: uuid(), opening_mode: "custom", selected_transaction_ids: [contribution.id], opening_balances: [
+    { account_id: usd, book_balance: "9007199254740993.12345678", native_balance: "9007199254740993.12345678" },
+    { account_id: capital, book_balance: "9007199254740993.12345678", native_balance: null },
+    { account_id: foreign, book_balance: "0", native_balance: "0" },
+  ] };
+  const ledgerBefore = await getSnapshot();
+  await rpc("save_scenario", [workspace, custom]);
+  assert.equal((await rpc("read_scenario", [workspace, custom.id])).rows[0].read_scenario.opening_balances[0].book_balance, "9007199254740993.12345678");
+  await rpc("delete_scenario", [workspace, custom.id]);
+  await rpc("delete_scenario", [workspace, p.id]);
+  assert.deepEqual(await getSnapshot(), ledgerBefore);
+});
 test("clean schema, owner RLS, direct writes, cross-workspace RPC/FK and invalid accounts", async () => {
   const tables = (
     await db.query("select tablename from pg_tables where schemaname='public'")
   ).rows.map((r) => r.tablename);
-  assert.equal(tables.length, 9);
+  assert.equal(tables.length, 10);
   const rows = await asUser(db, uid2, (c) => c.query("select * from accounts"));
   assert.equal(rows.rowCount, 0);
   await assert.rejects(
@@ -186,7 +237,8 @@ test("T01-T07/T10 subset, drafts, immutable posting, retry conflict and atomic f
   await save({ ...draft, description: "Edited draft" }, false);
   const totals = (
     await db.query(
-      "select a.type,sum(case j.side when 'debit' then j.book_amount else -j.book_amount end)::text balance from journal_lines j join accounts a on a.id=j.account_id join transactions t on t.id=j.transaction_id where t.posted_at is not null group by a.type",
+      "select a.type,sum(case j.side when 'debit' then j.book_amount else -j.book_amount end)::text balance from journal_lines j join accounts a on a.id=j.account_id join transactions t on t.id=j.transaction_id where t.posted_at is not null and t.workspace_id=$1 group by a.type",
+      [w],
     )
   ).rows;
   const byType = Object.fromEntries(totals.map((r) => [r.type, r.balance]));

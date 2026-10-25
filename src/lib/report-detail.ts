@@ -2,7 +2,7 @@ import { d, money } from "./money";
 import { postedLines, reports, signed } from "./reports";
 import type { Account, Snapshot } from "./types";
 
-export type ReportMode = "profit_loss" | "balance_sheet";
+export type ReportMode = "profit_loss" | "balance_sheet" | "balance_movement";
 export type ReportGroup = "all" | Account["type"] | "accumulated";
 export interface ReportDrill {
   mode: ReportMode;
@@ -30,10 +30,10 @@ export function reportDetail(
   mode: ReportMode,
   { from = "", to = "", search = "", accountId = "", group = "all" as ReportGroup } = {},
 ) {
-  if (mode === "profit_loss" && from && to && from > to)
+  if (mode !== "balance_sheet" && from && to && from > to)
     throw new Error("From date must be on or before through date.");
-  const periodFrom = mode === "profit_loss" ? from : "";
-  const full = reports(s, periodFrom, to);
+  const periodFrom = mode === "balance_sheet" ? "" : from;
+  const full = reports(mode === "balance_movement" ? { ...s, lines: postedLines(s, from, to) } : s, periodFrom, to);
   const transactions = new Map(s.transactions.map((t) => [t.id, t]));
   const accounts = new Map(s.accounts.map((a) => [a.id, a]));
   const query = search.toLowerCase();
@@ -41,7 +41,7 @@ export function reportDetail(
     const account = accounts.get(line.account_id);
     const transaction = transactions.get(line.transaction_id)!;
     return account &&
-      (mode === "balance_sheet" || ["revenue", "expense"].includes(account.type)) &&
+      (mode !== "profit_loss" || ["revenue", "expense"].includes(account.type)) &&
       matchesReportGroup(account, group) &&
       (!accountId || account.id === accountId) &&
       (!query || transaction.description.toLowerCase().includes(query));

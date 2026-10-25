@@ -69,4 +69,15 @@ export interface DatabaseRows {
     clearing_line_id: string;
     funding_line_id: string;
   };
+  financial_scenarios: {
+    id: string;
+    workspace_id: string;
+    name: string;
+    start_date: string;
+    end_date: string;
+    opening_mode: string;
+    configuration: unknown;
+    source_snapshot: unknown;
+    frozen_at: string;
+  };
 }
