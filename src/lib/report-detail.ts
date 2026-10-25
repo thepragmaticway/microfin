@@ -3,6 +3,21 @@ import { postedLines, reports, signed } from "./reports";
 import type { Account, Snapshot } from "./types";
 
 export type ReportMode = "profit_loss" | "balance_sheet";
+export type ReportGroup = "all" | Account["type"] | "accumulated";
+export interface ReportDrill {
+  mode: ReportMode;
+  from: string;
+  to: string;
+  accountId?: string;
+  group?: ReportGroup;
+}
+
+export function matchesReportGroup(account: Account, group: ReportGroup) {
+  if (group === "all") return true;
+  if (group === "equity") return ["equity", "revenue", "expense"].includes(account.type);
+  if (group === "accumulated") return ["revenue", "expense"].includes(account.type);
+  return account.type === group;
+}
 
 export function reportSign(mode: ReportMode, account: Account) {
   // In a balance sheet, expense lines reduce accumulated results in equity.
@@ -13,7 +28,7 @@ export function reportSign(mode: ReportMode, account: Account) {
 export function reportDetail(
   s: Snapshot,
   mode: ReportMode,
-  { from = "", to = "", search = "", accountId = "" } = {},
+  { from = "", to = "", search = "", accountId = "", group = "all" as ReportGroup } = {},
 ) {
   if (mode === "profit_loss" && from && to && from > to)
     throw new Error("From date must be on or before through date.");
@@ -27,6 +42,7 @@ export function reportDetail(
     const transaction = transactions.get(line.transaction_id)!;
     return account &&
       (mode === "balance_sheet" || ["revenue", "expense"].includes(account.type)) &&
+      matchesReportGroup(account, group) &&
       (!accountId || account.id === accountId) &&
       (!query || transaction.description.toLowerCase().includes(query));
   });

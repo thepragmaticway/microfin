@@ -1,6 +1,6 @@
 "use client";
 import { d, displayMoney } from "@/lib/money";
-import { reportDetail, type ReportMode } from "@/lib/report-detail";
+import { reportDetail, type ReportGroup, type ReportMode } from "@/lib/report-detail";
 import type { Snapshot, Transaction } from "@/lib/types";
 import { Empty, Notice } from "./ui";
 import { AccumulatedResult } from "./accumulated-result";
@@ -12,6 +12,7 @@ export function ActivityReportView({
   to,
   search,
   accountId,
+  group = "all",
   openEntry,
   openAccumulated,
 }: {
@@ -21,13 +22,14 @@ export function ActivityReportView({
   to: string;
   search: string;
   accountId: string;
+  group?: ReportGroup;
   openEntry: (transaction: Transaction) => void;
   openAccumulated: () => void;
 }) {
   const profitLoss = mode === "profit_loss";
   if (profitLoss && from && to && from > to)
     return <Notice error message="From date must be on or before through date." />;
-  const detail = reportDetail(snapshot, mode, { from, to, search, accountId });
+  const detail = reportDetail(snapshot, mode, { from, to, search, accountId, group });
   const code = snapshot.workspace.functional_currency_code;
   const metrics = profitLoss
     ? [["revenue", "Total income"], ["expenses", "Total expenses"], ["profit", "Net profit / loss"]] as const

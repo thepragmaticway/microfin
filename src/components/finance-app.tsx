@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { d, displayMoney } from "@/lib/money";
 import { activityAmount, summarizeActivity } from "@/lib/activity";
-import type { ReportMode } from "@/lib/report-detail";
+import { matchesReportGroup, type ReportDrill, type ReportGroup, type ReportMode } from "@/lib/report-detail";
 import {
   accountBalance,
   openItems,
@@ -28,6 +28,7 @@ import { TransactionDetail } from "./transaction-detail";
 import { ReportView } from "./report-view";
 import { AccountLedgerView } from "./account-ledger-view";
 import { ActivityReportView } from "./activity-report-view";
+import { GraphicalReportsView } from "./graphical-reports-view";
 type View =
   "overview" | "accounts" | "activity" | "unpaid" | "reports" | "contacts";
 type Modal =
@@ -61,7 +62,11 @@ export function FinanceApp() {
     [to, setTo] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [activityMode, setActivityMode] = useState<"transactions" | ReportMode>("transactions");
-  // Accumulated-result detail needs all history without replacing the Reports period.
+  const [activityGroup, setActivityGroup] = useState<ReportGroup>("all");
+  const [reportPresentation, setReportPresentation] = useState<"detailed" | "graphical">("detailed");
+  const [graphicalMode, setGraphicalMode] = useState<ReportMode>("profit_loss");
+  const [reportCategory, setReportCategory] = useState<"revenue" | "expense">("expense");
+  // Chart and accumulated-result detail must not replace the saved Reports period.
   const [activityPeriod, setActivityPeriod] = useState<{ from: string; to: string } | null>(null);
   const activityFrom = activityPeriod?.from ?? from;
   const activityTo = activityPeriod?.to ?? to;
@@ -125,6 +130,10 @@ export function FinanceApp() {
         setAccountFilter("");
         setSelectedAccountId("");
         setActivityMode("transactions");
+        setActivityGroup("all");
+        setReportPresentation("detailed");
+        setGraphicalMode("profit_loss");
+        setReportCategory("expense");
         setActivityPeriod(null);
         setSearch("");
         setStatus("all");
@@ -183,13 +192,18 @@ export function FinanceApp() {
   function navigate(target: View) {
     setView(target);
     setActivityPeriod(null);
+    setActivityGroup("all");
     setAccountFilter("");
     setSelectedAccountId("");
   }
   function openAccumulated(asOf: string) {
-    setActivityPeriod({ from: "", to: asOf });
-    setActivityMode("profit_loss");
-    setAccountFilter("");
+    openReportDetail({ mode: "profit_loss", from: "", to: asOf });
+  }
+  function openReportDetail(selection: ReportDrill) {
+    setActivityPeriod({ from: selection.from, to: selection.to });
+    setActivityMode(selection.mode);
+    setActivityGroup(selection.group ?? "all");
+    setAccountFilter(selection.accountId ?? "");
     setSearch("");
     setStatus("posted");
     setView("activity");
@@ -642,7 +656,7 @@ export function FinanceApp() {
                 {view === "activity" && (
                   <section className="panel">
                     {activityPeriod && <div className="section-head">
-                      <p className="muted">Exploring accumulated results. Your Reports period is preserved.</p>
+                      <p className="muted">Exploring report detail. Your Reports period is preserved.</p>
                       <button className="text-action" onClick={() => navigate("reports")}>← Back to Reports</button>
                     </div>}
                     <div className="filters">
@@ -651,6 +665,7 @@ export function FinanceApp() {
                           value={activityMode}
                           onChange={(e) => {
                             setActivityMode(e.target.value as "transactions" | ReportMode);
+                            setActivityGroup("all");
                             setAccountFilter("");
                           }}
                         >
@@ -659,6 +674,21 @@ export function FinanceApp() {
                           <option value="balance_sheet">Balance sheet</option>
                         </select>
                       </Field>
+                      {activityMode !== "transactions" && <Field label="Report group">
+                        <select value={activityGroup} onChange={(e) => {
+                          setActivityGroup(e.target.value as ReportGroup);
+                          setAccountFilter("");
+                        }}>
+                          <option value="all">All report accounts</option>
+                          {activityMode === "profit_loss" ? <>
+                            <option value="revenue">Revenue</option><option value="expense">Expenses</option>
+                          </> : <>
+                            <option value="asset">Assets</option><option value="liability">Liabilities</option>
+                            <option value="equity">Equity including accumulated results</option>
+                            <option value="accumulated">Accumulated unclosed profit/loss</option>
+                          </>}
+                        </select>
+                      </Field>}
                       <Field label="Search entries">
                         <input
                           value={search}
@@ -672,8 +702,9 @@ export function FinanceApp() {
                           onChange={(e) => setAccountFilter(e.target.value)}
                         >
                           <option value="">All accounts</option>
-                          {s.accounts.filter((a) => activityMode !== "profit_loss" ||
-                            ["revenue", "expense"].includes(a.type)).map((a) => (
+                          {s.accounts.filter((a) => (activityMode !== "profit_loss" ||
+                            ["revenue", "expense"].includes(a.type)) &&
+                            (activityMode === "transactions" || matchesReportGroup(a, activityGroup))).map((a) => (
                             <option key={a.id} value={a.id}>
                               {a.name}
                             </option>
@@ -740,6 +771,7 @@ export function FinanceApp() {
                         to={activityTo}
                         search={search}
                         accountId={accountFilter}
+                        group={activityGroup}
                         openEntry={(transaction) => setModal({ type: "detail", transaction })}
                         openAccumulated={() => openAccumulated(activityTo)}
                       />
@@ -840,13 +872,28 @@ export function FinanceApp() {
                 )}
                 {view === "reports" && (
                   <>
+                    <div className="report-toolbar">
+                      <div className="report-switch" role="group" aria-label="Report presentation">
+                        <button aria-pressed={reportPresentation === "detailed"} onClick={() => setReportPresentation("detailed")}>Detailed</button>
+                        <button aria-pressed={reportPresentation === "graphical"} onClick={() => setReportPresentation("graphical")}>Graphical</button>
+                      </div>
+                      {reportPresentation === "graphical" && <div className="report-switch" role="group" aria-label="Graphical report">
+                        <button aria-pressed={graphicalMode === "profit_loss"} onClick={() => setGraphicalMode("profit_loss")}>Profit &amp; loss</button>
+                        <button aria-pressed={graphicalMode === "balance_sheet"} onClick={() => setGraphicalMode("balance_sheet")}>Balance sheet</button>
+                      </div>}
+                    </div>
                     <DateFilters
                       from={from}
                       to={to}
                       setFrom={setFrom}
                       setTo={setTo}
+                      asOfOnly={reportPresentation === "graphical" && graphicalMode === "balance_sheet"}
                     />
-                    <ReportView
+                    {reportPresentation === "graphical" ? <GraphicalReportsView
+                      snapshot={s} mode={graphicalMode} from={from} to={to}
+                      category={reportCategory} setCategory={setReportCategory}
+                      drill={openReportDetail} openAccumulated={() => openAccumulated(to)}
+                    /> : <ReportView
                       snapshot={s}
                       from={from}
                       to={to}
@@ -854,12 +901,13 @@ export function FinanceApp() {
                       drill={(id, period) => {
                         setView("activity");
                         setActivityPeriod(null);
+                        setActivityGroup("all");
                         setActivityMode(period ? "profit_loss" : "balance_sheet");
                         setAccountFilter(id);
                         setSearch("");
                         setStatus("posted");
                       }}
-                    />
+                    />}
                   </>
                 )}
                 {view === "contacts" && (
