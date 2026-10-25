@@ -1,6 +1,6 @@
 # Microfin: simple core data model
 
-Status: current proposed schema, not an applied migration. This version supersedes the expanded proposal. Types use PostgreSQL-style notation; database technology is not finalized.
+Status: implemented core schema in `supabase/migrations/`. This version supersedes the expanded proposal. PostgreSQL is provided by Supabase; deployments apply versioned migrations separately.
 
 Current scope: registration, personal/business workspaces, multi-currency accounts, manual income/expenses/transfers, unpaid invoices/bills with partial payments, profit and loss, and balance sheet from posted records.
 
@@ -47,13 +47,11 @@ The UI can still use simple actions such as Spend money or Buy equipment. The ap
 
 | Field | Type | Constraint / meaning |
 |---|---|---|
-| `id` | uuid | PK |
-| `auth_subject` | text | Unique identity from the selected authentication system |
-| `email` | text | Unique normalized email |
+| `id` | uuid | PK, FK to `auth.users.id` |
 | `display_name` | text | Required |
 | `created_at` | timestamptz | Required |
 
-Assumption: one authentication system manages registration, credentials, and sessions. Provider-specific credential/session tables are outside this financial domain model. No separate auth-identities table is needed for the current single-provider design.
+Supabase Auth manages registration, email, credentials, and sessions. The public profile stores only display metadata; it does not duplicate the authentication subject or email. Auth provider tables are outside these nine application entities.
 
 ### `currencies`
 

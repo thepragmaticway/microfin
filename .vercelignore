@@ -1,0 +1,12 @@
+.env*
+!.env.example
+.dev-loop/
+node_modules/
+.next/
+coverage/
+test-results/
+playwright-report/
+tests/
+supabase/tests/
+*.log
+.git/
