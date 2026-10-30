@@ -80,4 +80,28 @@ export interface DatabaseRows {
     source_snapshot: unknown;
     frozen_at: string;
   };
+  accounting_sources: {
+    id: string;
+    workspace_id: string;
+    module: string;
+    created_at: string;
+  };
+  accounting_operations: {
+    id: string;
+    workspace_id: string;
+    source_id: string;
+    operation: string;
+    request: unknown;
+    transaction_id: string;
+    obligation_id: string | null;
+    transfer_evidence: unknown;
+    created_at: string;
+  };
+  payroll_items: {
+    id: string;
+    workspace_id: string;
+    employee_party_id: string;
+    period: string;
+    created_at: string;
+  };
 }

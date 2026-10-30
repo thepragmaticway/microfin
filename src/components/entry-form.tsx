@@ -8,6 +8,7 @@ import {
   type Split,
   type TransferValues,
 } from "@/lib/guided";
+import { guidedChoices as choices } from "@/lib/modules/bookkeeping";
 import { d, displayMoney } from "@/lib/money";
 import { workspaceToday } from "@/lib/reports";
 import type { Account, EventInput, Kind, Snapshot } from "@/lib/types";
@@ -26,38 +27,6 @@ export const actionLabels: Partial<Record<Kind, string>> = {
   opening_balance: "Add opening balance",
   adjustment: "Manual journal entry",
 };
-function choices(s: Snapshot, kind: Kind) {
-  const active = s.accounts.filter((a) => a.is_active),
-    money = active.filter((a) =>
-      ["bank", "cash", "wallet", "credit_card"].includes(a.role),
-    );
-  const category = (type: string) =>
-    active.filter((a) => a.role === "general" && a.type === type);
-  if (kind === "invoice")
-    return {
-      source: active.filter((a) => a.role === "receivable"),
-      target: category("revenue"),
-    };
-  if (kind === "bill")
-    return {
-      source: active.filter((a) => a.role === "payable"),
-      target: category("expense"),
-    };
-  if (kind === "opening_balance") return { source: active, target: active };
-  return {
-    source: money,
-    target:
-      kind === "income"
-        ? category("revenue")
-        : kind === "expense"
-          ? category("expense")
-          : kind === "transfer"
-            ? money
-            : ["contribution", "withdrawal"].includes(kind)
-              ? category("equity")
-              : category("asset"),
-  };
-}
 export function AccountOptions({ accounts }: { accounts: Account[] }) {
   return (
     <>
@@ -144,7 +113,7 @@ export function EntryForm({
     try {
       const event = pending.current ?? buildGuided(s, input());
       pending.current = event;
-      await api(`/api/workspaces/${s.workspace.id}/events`, { event, post });
+      await api(`/api/workspaces/${s.workspace.id}/commands`, {type: "guided", input: input(), post});
       done();
     } catch (error) {
       setError((error as Error).message);

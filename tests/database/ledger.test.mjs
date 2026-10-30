@@ -128,7 +128,21 @@ test("clean schema, owner RLS, direct writes, cross-workspace RPC/FK and invalid
   const tables = (
     await db.query("select tablename from pg_tables where schemaname='public'")
   ).rows.map((r) => r.tablename);
-  assert.equal(tables.length, 10);
+  assert.deepEqual(tables.sort(), [
+    "accounting_operations",
+    "accounting_sources",
+    "accounts",
+    "currencies",
+    "financial_scenarios",
+    "journal_lines",
+    "obligations",
+    "parties",
+    "payroll_items",
+    "settlements",
+    "transactions",
+    "users",
+    "workspaces",
+  ]);
   const rows = await asUser(db, uid2, (c) => c.query("select * from accounts"));
   assert.equal(rows.rowCount, 0);
   await assert.rejects(

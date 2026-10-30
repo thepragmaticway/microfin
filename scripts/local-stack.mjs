@@ -51,13 +51,13 @@ export function jwt(role, sub) {
     });
   return `${h}.${p}.${createHmac("sha256", secret).update(`${h}.${p}`).digest("base64url")}`;
 }
-export async function migrate(client) {
+export async function migrate(client, { through } = {}) {
   for (const file of (await readdir("supabase/migrations"))
-    .filter((f) => f.endsWith(".sql"))
+    .filter((f) => f.endsWith(".sql") && (!through || f <= through))
     .sort())
     await client.query(await readFile(`supabase/migrations/${file}`, "utf8"));
 }
-export async function localStack({ auth = false } = {}) {
+export async function localStack({ auth = false, migrationsThrough } = {}) {
   const prefix = `microfin-test-${randomUUID().slice(0, 8)}`,
     containers = [],
     port = await unusedPort();
@@ -199,7 +199,7 @@ export async function localStack({ auth = false } = {}) {
       await db.query(
         `create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(coalesce(current_setting('request.jwt.claim.sub',true),(current_setting('request.jwt.claims',true)::jsonb->>'sub')),'')::uuid $$`,
       );
-      await migrate(db);
+      await migrate(db, {through: migrationsThrough});
       const restName = `${prefix}-rest`;
       await docker(
         "run",
@@ -270,7 +270,7 @@ export async function localStack({ auth = false } = {}) {
     } else {
       await db.query("create table auth.users(id uuid primary key)");
       await db.query("insert into auth.users values ($1),($2)", [uid1, uid2]);
-      await migrate(db);
+      await migrate(db, {through: migrationsThrough});
     }
     async function startApp() {
       const appUrl = `http://127.0.0.1:${appPort}`;

@@ -1,5 +1,5 @@
 import { currency, decimal, eventInput, lineInput, rate } from "./contracts";
-import { carriedLines } from "./guided";
+import { carriedLines } from "./accounting/ledger";
 import { convert, d, money } from "./money";
 import type { Account, Currency, EventInput, Line, Snapshot } from "./types";
 

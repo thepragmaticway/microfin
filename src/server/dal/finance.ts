@@ -27,3 +27,23 @@ export async function command(
   if (error) databaseError(error);
   return data;
 }
+
+export interface AccountingOperation {
+  transaction_id: string;
+  obligation_id: string | null;
+  request: Record<string, unknown>;
+  source: {module: string};
+}
+export async function accountingOperation(client: SupabaseClient, w: string, source: string, operation: string): Promise<AccountingOperation | null> {
+  const {data,error} = await client.from("accounting_operations")
+    .select("transaction_id,obligation_id,request,source:accounting_sources!inner(module)")
+    .eq("workspace_id",w).eq("source_id",source).eq("operation",operation).maybeSingle();
+  if(error) databaseError(error);
+  return data as unknown as AccountingOperation | null;
+}
+export async function payrollSource(client: SupabaseClient, w: string, source: string) {
+  const {data,error} = await client.from("payroll_items").select("id,employee_party_id,period")
+    .eq("workspace_id",w).eq("id",source).maybeSingle();
+  if(error) databaseError(error);
+  return data as {id:string;employee_party_id:string;period:string} | null;
+}

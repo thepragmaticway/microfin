@@ -4,7 +4,7 @@ Status: implemented core schema in `supabase/migrations/`. This version supersed
 
 Current scope: registration, personal/business workspaces, multi-currency accounts, manual income/expenses/transfers, unpaid invoices/bills with partial payments, profit and loss, and balance sheet from posted records.
 
-Deferred: documents, imports, matching/reconciliation, revaluation, payroll recording, and budgets. These have no tables, foreign keys, or transaction kinds in this version. Payroll entries in [ACCOUNTING_EXAMPLE.md](ACCOUNTING_EXAMPLE.md) remain educational examples, not a current payroll feature commitment.
+Deferred: documents, imports, matching/reconciliation, revaluation, full payroll management workflows, and budgets. A small backend payroll adapter now demonstrates the shared accounting extension contract; employee/run management and statutory processing remain outside scope. See [ACCOUNTING_EXTENSIONS.md](ACCOUNTING_EXTENSIONS.md).
 
 ## 1. Core structure: nine ledger tables and scenario storage
 
@@ -336,3 +336,7 @@ Drafts may have zero lines; posting requires at least two. Repeated workspace FK
 | Unpaid invoices/bills | Recognition amounts less active posted settlement clearings |
 
 Reports reflect posted book values and actual settlement differences. Period-end currency revaluation, depreciation automation, and closing automation are not provided by this version. Splits are additional journal lines in one transaction, not duplicate business-line amounts.
+
+## Accounting extension sources
+
+The ledger remains the source of financial balances. `accounting_sources` registers a workspace/module identity; `accounting_operations` immutably links each source/operation to one posted transaction and its optional recognized obligation, request snapshot and transfer evidence. `payroll_items` separately holds the example employee Party and salary period, without stored balances. All references remain in one workspace and all writes occur in a single authenticated module command transaction. Existing ledger rows and `read_snapshot` financial results are unchanged. New module recognition uses `recognition`; legacy invoice/bill kinds remain supported. See [the extension contract](ACCOUNTING_EXTENSIONS.md) for dependency boundaries, retries, APIs, migrations and a payroll example.

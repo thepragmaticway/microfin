@@ -21,6 +21,13 @@ for (const file of await files("src")) {
     ...source.matchAll(/(?:from\s*|import\s*\()\s*["']([^"']+)/g),
   ].map((m) => m[1]);
   for (const imp of imports) {
+    const resolved = imp.startsWith("@/") ? "src/" + imp.slice(2) : imp.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(normalized), imp)) : imp;
+    if (normalized.startsWith("src/lib/accounting/") && /^(src\/lib\/modules|src\/server|src\/components)(\/|$)/.test(resolved))
+      errors.push(`${file}: shared accounting cannot depend on application modules or UI/server I/O`);
+    if (normalized.startsWith("src/server/accounting/") && /^(src\/lib\/modules|src\/server\/modules|src\/components)(\/|$)/.test(resolved))
+      errors.push(`${file}: accounting commands cannot depend on application modules`);
+    if (normalized.startsWith("src/lib/modules/") && /^(src\/server|src\/components)(\/|$)/.test(resolved))
+      errors.push(`${file}: pure application adapters cannot depend on server I/O or UI`);
     if (
       (normalized.startsWith("src/components/") ||
         (normalized.startsWith("src/app/") && !normalized.includes("/api/"))) &&

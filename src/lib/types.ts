@@ -22,6 +22,7 @@ export type Kind =
   | "bill"
   | "payment"
   | "opening_balance"
+  | "recognition"
   | "adjustment"
   | "reversal";
 export interface Workspace {

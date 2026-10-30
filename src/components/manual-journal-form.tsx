@@ -119,8 +119,9 @@ export function ManualJournalForm({
       if (post && !balanced)
         throw new Error("Balance the journal before posting");
       pending.current = event;
-      await api(`/api/workspaces/${snapshot.workspace.id}/events`, {
-        event,
+      await api(`/api/workspaces/${snapshot.workspace.id}/commands`, {
+        type: "manual",
+        input: {id: id.current, accounting_date: date, description, party_id: initialEvent?.party_id ?? null, lines: rows},
         post,
       });
       done();

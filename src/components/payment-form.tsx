@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
-import { buildPayment, type PaymentAllocation } from "@/lib/guided";
+import { buildPayment, type PaymentInput, type PaymentAllocation } from "@/lib/guided";
 import { api } from "@/lib/api";
 import { openItems, workspaceToday } from "@/lib/reports";
 import { displayMoney } from "@/lib/money";
@@ -38,9 +38,9 @@ export function PaymentForm({
   const form = useRef<HTMLFormElement>(null),
     id = useRef(crypto.randomUUID()),
     pending = useRef<EventInput | null>(null);
-  function build() {
+  function paymentInput(): PaymentInput {
     const f = new FormData(form.current!);
-    return buildPayment(s, {
+    return {
       id: id.current,
       accounting_date: String(f.get("date")),
       description: String(f.get("description")),
@@ -56,8 +56,9 @@ export function PaymentForm({
             },
           }
         : {}),
-    });
+    };
   }
+  function build() { return buildPayment(s, paymentInput()); }
   function change(index: number, key: keyof PaymentAllocation, value: string) {
     setAllocations(
       allocations.map((a, i) => (i === index ? { ...a, [key]: value } : a)),
@@ -79,8 +80,8 @@ export function PaymentForm({
         try {
           const event = pending.current ?? build();
           pending.current = event;
-          await api(`/api/workspaces/${s.workspace.id}/events`, {
-            event,
+          await api(`/api/workspaces/${s.workspace.id}/commands`, {
+            type: "payment", input: paymentInput(),
             post: true,
           });
           done();

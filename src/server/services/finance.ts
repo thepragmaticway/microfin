@@ -1,12 +1,14 @@
 import "server-only";
 import { verifiedClient } from "../auth";
 import * as dal from "../dal/finance";
+import { recordEvent, reversePosting, priorOperation, prepareEvent, commitOperation } from "../accounting/commands";
+import { accountingCommandInput, sourceRequest } from "@/lib/accounting/contracts";
+import { prepareBookkeeping } from "@/lib/modules/bookkeeping";
+export {accrueSalary, paySalary} from "../modules/payroll";
 import {
   accountInput,
   partyInput,
   queryInput,
-  reversalInput,
-  saveEventInput,
   workspaceInput,
 } from "@/lib/contracts";
 export async function listWorkspaces() {
@@ -42,14 +44,26 @@ export async function saveParty(workspace: string, input: unknown) {
   return dal.command(client, "save_party", { w, p });
 }
 export async function saveEvent(workspace: string, input: unknown) {
-  const { workspace: w } = queryInput.parse({ workspace }),
-    { event: p, post } = saveEventInput.parse(input),
-    { client } = await verifiedClient();
-  return dal.command(client, "save_event", { w, p, post });
+  const {workspace: w} = queryInput.parse({workspace}), {client} = await verifiedClient();
+  return recordEvent(client, w, input);
 }
 export async function reverseEvent(workspace: string, input: unknown) {
-  const { workspace: w } = queryInput.parse({ workspace }),
-    p = reversalInput.parse(input),
-    { client } = await verifiedClient();
-  return dal.command(client, "reverse_event", { w, ...p });
+  const {workspace: w} = queryInput.parse({workspace}), {client} = await verifiedClient();
+  return reversePosting(client, w, input);
+}
+export async function executeCommand(workspace: string, input: unknown) {
+  const {workspace: w} = queryInput.parse({workspace});
+  const command = accountingCommandInput.parse(input);
+  const {client} = await verifiedClient();
+  const snapshot = await dal.snapshot(client, w);
+  const request = {command:command.type,...sourceRequest(command.input)};
+  const source = command.source_id ?? command.input.id;
+  const moduleName = command.type === "guided" && ["invoice","bill"].includes(command.input.kind) ? "invoicing" : "bookkeeping";
+  if (command.post) {
+    const prior = await priorOperation(client,w,source,"record",request,moduleName);
+    if(prior) return prior;
+  }
+  const event = prepareEvent(() => prepareBookkeeping(snapshot,command));
+  if(!command.post) return recordEvent(client,w,{event,post:false});
+  return commitOperation(client,"save_bookkeeping_event",{w,source_id:source,request,p:event});
 }

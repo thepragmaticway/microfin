@@ -106,6 +106,7 @@ export const eventInput = z
       "bill",
       "payment",
       "opening_balance",
+      "recognition",
       "adjustment",
     ]),
     description: z.string().trim().min(1).max(500),
